@@ -1,0 +1,374 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>魷魚撲克 · Solver</title>
+<style>
+  :root{ --felt:#0b3d2e; --felt2:#0e4a37; --line:#1c6b4f; --ink:#eafff5; --dim:#8fd6bb;
+         --danger:#ff5566; --safe:#37d67a; --gold:#ffcf5c; }
+  *{box-sizing:border-box}
+  body{margin:0;font:14px/1.45 system-ui,"Segoe UI","Microsoft JhengHei",sans-serif;
+       background:var(--felt);color:var(--ink);padding:20px;max-width:1000px;margin:auto}
+  h1{font-size:20px;margin:0 0 10px} h2{font-size:14px;color:var(--gold);margin:20px 0 6px}
+  .sub{color:var(--dim);font-size:12px;margin-bottom:12px}
+  nav{display:flex;gap:8px;margin-bottom:16px}
+  nav button{padding:8px 18px;border:1px solid var(--line);background:var(--felt2);color:var(--dim);
+       border-radius:8px;cursor:pointer;font:inherit;font-weight:600}
+  nav button.on{background:var(--gold);color:#062a1f;border-color:var(--gold)}
+  .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px}
+  .grid>div{display:flex;flex-direction:column}                 /* label 行數不一時,底部仍對齊 */
+  .grid>div>input,.grid>div>select{margin-top:auto}
+  label{display:block;color:var(--dim);font-size:12px;margin-bottom:4px}
+  input,select{width:100%;background:#062a1f;color:var(--ink);border:1px solid var(--line);
+        border-radius:5px;padding:6px 8px;font:inherit}
+  .banner{background:var(--felt2);border:1px solid var(--line);border-radius:8px;
+          padding:12px 14px;margin:6px 0;font-size:15px}
+  .banner b{color:var(--gold);font-size:20px}
+  table{border-collapse:collapse;width:100%;margin-top:6px;font-size:13px}
+  th,td{border:1px solid var(--line);padding:5px 7px;text-align:center;font-variant-numeric:tabular-nums}
+  th{background:#083528;color:var(--gold);font-weight:600}
+  .step button{width:24px;height:24px;border:1px solid var(--line);background:#062a1f;color:var(--ink);
+       border-radius:5px;cursor:pointer;font-weight:700}
+  .step button:disabled{opacity:.3;cursor:not-allowed}
+  .pbtn{width:auto;padding:6px 12px;border:1px solid var(--line);background:var(--felt2);color:var(--dim);
+       border-radius:5px;cursor:pointer;font:inherit;font-size:12px;white-space:nowrap}
+  .pbtn:hover{background:var(--line);color:var(--ink)}
+  .step span{display:inline-block;min-width:26px}
+  .pos{color:var(--safe)} .neg{color:var(--danger)}
+</style>
+
+<h1>🦑 魷魚撲克 · Solver</h1>
+<nav>
+  <button id="tabS" class="on">Perceived Antes</button>
+  <button id="tabB">Bounty</button>
+</nav>
+
+<!-- ============ 頁 1:魷魚 Perceived Antes ============ -->
+<div id="pageS">
+  <div class="sub">每手把一個「魷魚包」發給該手贏家（整包進同一人），剩餘魷魚逐手隨機分配，精確計算每位玩家的期望死錢。</div>
+
+  <h2>Format Profile</h2>
+  <div class="grid">
+    <div><label>已存 profile</label><select id="profSel"></select></div>
+    <div><label>Profile 名稱</label><input type="text" id="profName" placeholder="例：週五 6人局"></div>
+    <div style="display:flex;gap:6px;align-items:flex-end">
+      <button id="profSave" class="pbtn">儲存</button>
+      <button id="profRename" class="pbtn">改名</button>
+      <button id="profDel" class="pbtn">刪除</button>
+    </div>
+  </div>
+  <div class="sub" id="profNote">設定會存喺呢部機，下次開返都仲喺度。</div>
+
+  <h2>設定</h2>
+  <div class="grid">
+    <div><label>玩家數</label><input type="number" id="np" value="9" min="2" max="20"></div>
+    <div><label>總魷魚數</label><select id="totalOff">
+      <option value="-2">N−2</option>
+      <option value="-1">N−1</option>
+      <option value="0">N</option>
+      <option value="1">N+1</option>
+      <option value="2">N+2</option>
+      <option value="3" selected>N+3</option>
+      <option value="4">N+4</option>
+    </select></div>
+    <div><label>單條價值 (BB)</label><input type="number" id="unit" value="1" min="0" step="0.5"></div>
+    <div><label>BB 價值（1BB = 幾多籌碼）</label><input type="number" id="bbval" value="50" min="0"></div>
+    <div><label>本手魷魚數</label><input type="number" id="next" value="1" min="1"></div>
+    <div><label>倍率 multiplier</label><select id="mult">
+      <option value="1,1,2,2,3,3,4">3(×2)·5(×3)·7(×4)</option>
+      <option value="1,1,2,2,3">3(×2)·5(×3)</option>
+      <option value="1,1,2">3隻以上×2（不再跳階）</option>
+      <option value="1">冇倍（不限條數）</option>
+      <option value="standup">Stand-up（冇倍，每人限一條）</option>
+    </select></div>
+  </div>
+  <div class="sub" id="remnote"></div>
+
+  <h2>結果</h2>
+  <div class="banner">E[終局罰金玩家數]：<b id="epp">–</b> 位　｜　每位 Penalty 罰金（現況結算）：<b id="totpen">–</b> 籌碼</div>
+
+  <h2>每位玩家摘要 <button id="resetHolds" style="width:auto;padding:3px 12px;border:1px solid var(--line);background:var(--felt2);color:var(--dim);border-radius:5px;cursor:pointer;font-size:12px;vertical-align:middle">Reset squids</button></h2>
+  <table id="summary"></table>
+  <div class="sub">Squids 用 −/+ 調整。Average Ante = 對全體對手感知 Ante 的平均；Penalty Equity = 期望淨值 (BB)，全場加總為 0。<br>
+  隱含 Side Pot = BB 價值 × (Average Ante + 單條 Squid 價值)，即呢鋪牌檯面外實際爭緊嘅籌碼。</div>
+
+  <h2>Heads-up 感知 Ante 矩陣（籌碼）</h2>
+  <div class="sub">列 = 該手玩家，欄 = 對手。單格 =「這一手贏得魷魚」對列玩家的 EV 價值（非對稱），已按 BB 價值換算做籌碼。</div>
+  <table id="matrix"></table>
+</div>
+
+<!-- ============ 頁 2:Bounty 連勝賞金 ============ -->
+<div id="pageB" style="display:none">
+  <div class="sub">連勝賞金：某玩家連贏多手，每達一階全桌每人付該階賞金給他（各階分別支付）。連勝被斷即歸零，不模擬他人重新起連勝。</div>
+
+  <h2>設定</h2>
+  <div class="grid">
+    <div><label>玩家數</label><input type="number" id="bn" value="8" min="2" max="20"></div>
+    <div><label>連勝者</label><select id="bholder"></select></div>
+    <div><label>目前連勝手數</label><input type="number" id="bstreak" value="2" min="0"></div>
+    <div><label>連勝者下一手勝率 %</label><input type="number" id="bp" placeholder="預設 100/玩家數" min="1" max="99"></div>
+    <div><label>賞金階「連勝數:每人BB」逗號分隔</label><input type="text" id="btiers" value="3:10,4:20"></div>
+  </div>
+
+  <h2>結果</h2>
+  <div class="banner" id="bbanner">請選擇連勝者</div>
+
+  <h2>每位玩家 Bounty Equity</h2>
+  <table id="bsummary"></table>
+
+  <h2>連勝階梯</h2>
+  <div class="sub">V(s) = 連勝 s 手時的期望賞金；本手 at stake = 這一手輸贏對連勝者的 EV 差（= V(s)/p）。</div>
+  <table id="bladder"></table>
+</div>
+
+<script>
+const $=s=>document.querySelector(s);
+const sum=a=>a.reduce((x,y)=>x+y,0);
+
+/* ---------- tab ---------- */
+function show(pg){
+  $('#pageS').style.display = pg==='S'?'':'none';
+  $('#pageB').style.display = pg==='B'?'':'none';
+  $('#tabS').classList.toggle('on',pg==='S');
+  $('#tabB').classList.toggle('on',pg==='B');
+}
+$('#tabS').onclick=()=>show('S'); $('#tabB').onclick=()=>show('B');
+
+/* ================= 頁 1:魷魚模型 ================= */
+let holds=[5,2,2,1,0,0,0,0,0];
+function mk(k,ml){ return ml[Math.min(k,ml.length)-1]; }       // 第 k 條的倍率(最後一項重複)
+function A(k,ml,val){ return k>0 ? k*mk(k,ml)*val : 0; }        // 持 k 條的結算獎金
+
+/* --- 一般模型:魷魚可疊,放回抽樣 DP --- */
+function buildPackets(rem,next){
+  const P=[]; let left=rem; if(left<=0) return P;
+  const first=Math.min(Math.max(1,next),left); P.push(first); left-=first;
+  while(left>0){ P.push(1); left--; }
+  return P;
+}
+function jointDP(packets,n){
+  const rem=sum(packets), S=rem+1; let dp=new Float64Array(S*S); dp[0]=1;
+  const p=1/n, po=(n-2)/n;
+  for(const s of packets){
+    const nd=new Float64Array(S*S);
+    for(let a=0;a<S;a++) for(let b=0;a+b<=rem;b++){
+      const pr=dp[a*S+b]; if(!pr) continue;
+      nd[(a+s)*S+b]+=pr*p; nd[a*S+(b+s)]+=pr*p; nd[a*S+b]+=pr*po;
+    }
+    dp=nd;
+  }
+  return {dp,S,rem};
+}
+function equity_i(counts,dpObj,i,n,ml,val){
+  const {dp,S,rem}=dpObj, ci=counts[i]; let tot=0;
+  for(let j=0;j<n;j++){
+    if(j===i) continue; const cj=counts[j];
+    for(let a=0;a<S;a++) for(let b=0;a+b<=rem;b++){
+      const pr=dp[a*S+b]; if(!pr) continue;
+      const ki=ci+a, kj=cj+b;
+      if(ki>0 && kj===0) tot+=pr*A(ki,ml,val);
+      if(ki===0)         tot-=pr*A(kj,ml,val);
+    }
+  }
+  return tot;
+}
+
+/* --- Stand-up:每人限一條,不放回。閉式期望 --- */
+// z 個站著,發 r=min(rem,z) 條給不同人 → 終局 fz=z−r 人站著;持者收 val×fz,站者取期望
+function suEquity(counts, remLocal, n, val){
+  const zz=counts.filter(x=>x===0).length, rr=Math.min(Math.max(0,remLocal),zz), fz=zz-rr;
+  return counts.map(c=>{
+    if(c>0) return val*fz;                                   // 已坐下(安全):收 fz 位輸家罰金
+    const pH=zz>0?rr/zz:0, pS=zz>0?fz/zz:0;
+    return pH*val*fz - pS*(n-fz)*val;                        // 站著:期望淨值
+  });
+}
+
+function computeS(){
+  const n=+$('#np').value;
+  while(holds.length<n) holds.push(0); holds.length=n;
+  const totalOff=+$('#totalOff').value, total=Math.max(0,n+totalOff);
+  const totalLabel=`N${totalOff>=0?'+':''}${totalOff||''}`;
+  const val=+$('#unit').value, next=+$('#next').value||1;
+  const mv=$('#mult').value, standup = mv==='standup';
+  const ml = standup ? [1] : mv.split(',').map(x=>+x.trim()).filter(x=>!isNaN(x));
+  if(!ml.length) return;
+  const cap = standup ? 1 : Infinity;
+  for(let i=0;i<n;i++) holds[i]=Math.min(holds[i],cap);       // 套用上限
+  const distributed=sum(holds), rem=Math.max(0,Math.min(total-distributed,60));
+
+  let eq, avg, M, eppText;
+  if(standup){
+    const z=holds.filter(x=>x===0).length, r=Math.min(rem,z), finalZ=z-r;
+    eq=suEquity(holds,rem,n,val);
+    eppText=finalZ.toFixed(3);
+    const give=(cs,idx)=>{const c=cs.slice(); if(c[idx]===0)c[idx]=1; return c;};
+    const ante=(i,j)=> suEquity(give(holds,i),rem-1,n,val)[i]-suEquity(give(holds,j),rem-1,n,val)[i];
+    M=holds.map((_,i)=>holds.map((_,j)=> i===j?null:ante(i,j)));
+    avg=M.map(row=>{const v=row.filter(x=>x!==null); return v.reduce((a,b)=>a+b,0)/v.length;});
+    $('#remnote').textContent=`總魷魚 ${total} 條（${totalLabel}）｜Stand-up（每人限一條）｜已坐下 ${distributed} 人，可再發 ${r} 條，終局站著 ${finalZ} 人`;
+  } else {
+    const packets=buildPackets(rem,next);
+    const dpFull=jointDP(packets,n);
+    eq=holds.map((_,i)=>equity_i(holds,dpFull,i,n,ml,val));
+    const zeros=holds.filter(x=>x===0).length;
+    eppText=(zeros*Math.pow((n-1)/n,packets.length)).toFixed(3);
+    const first=packets.length?packets[0]:Math.max(1,next);
+    const dpRest=jointDP(packets.slice(1),n);
+    const ante=(i,j)=>{ const ci=holds.slice(); ci[i]+=first; const cj=holds.slice(); cj[j]+=first;
+      return equity_i(ci,dpRest,i,n,ml,val)-equity_i(cj,dpRest,i,n,ml,val); };
+    M=holds.map((_,i)=>holds.map((_,j)=> i===j?null:ante(i,j)));
+    avg=M.map(r=>{const v=r.filter(x=>x!==null); return v.reduce((a,b)=>a+b,0)/v.length;});
+    $('#remnote').textContent=`總魷魚 ${total} 條（${totalLabel}）｜已發放 ${distributed} / ${total}，剩餘 ${total-distributed} 條`
+      + (packets.length?`　→ 發牌包：${packets.join(',')}`:'　(已發完)')
+      + (total-distributed<0?'（超過總數！請檢查）':'');
+  }
+
+  // 每位 Penalty 罰金(現況結算) = 每位 DANGER 付全額池,換算做籌碼
+  const bbval=+$('#bbval').value||0;
+  const poolNow=holds.reduce((a,k)=>a+A(k,ml,val),0);
+  $('#epp').textContent=eppText;
+  $('#totpen').textContent=Math.round(poolNow*bbval).toLocaleString();
+
+  // 隱含 side pot(籌碼) = BB價值 × (Average Ante + 單條 Squid 價值)
+  const sidePot=avg.map(a=>bbval*(a+val));
+
+  const atCap = !standup && distributed>=total;                // 已派完,全體 + 制無效
+  let s=`<tr><th>玩家</th><th>Squids</th><th>Average Ante [BB]</th><th>Penalty Equity [BB]</th><th>隱含 Side Pot（籌碼）</th></tr>`;
+  holds.forEach((k,i)=>{ const plusOff = atCap || k>=cap;
+    s+=`<tr><td>P${i+1}</td>
+    <td class="step"><button data-d="-1" data-i="${i}">−</button><span>${k}</span><button data-d="1" data-i="${i}" ${plusOff?'disabled':''}>+</button></td>
+    <td>${avg[i].toFixed(4)}</td>
+    <td class="${eq[i]>=0?'pos':'neg'}">${eq[i].toFixed(4)}</td>
+    <td>${Math.round(sidePot[i]).toLocaleString()}</td></tr>`; });
+  $('#summary').innerHTML=s;
+  $('#summary').querySelectorAll('button').forEach(b=>b.onclick=()=>{
+    const i=+b.dataset.i, d=+b.dataset.d;
+    if(d>0 && (sum(holds)>=total || holds[i]>=cap)) return;    // 總數已滿 / 個人上限,+ 無效
+    holds[i]=Math.max(0,Math.min(cap,holds[i]+d)); computeS(); });
+
+  const mx=Math.max(1,...M.flat().filter(x=>x!==null).map(Math.abs));    // 比例以 BB 為準,籌碼只係線性縮放
+  let t=`<tr><th></th>`; holds.forEach((_,j)=>t+=`<th>P${j+1}</th>`); t+=`</tr>`;
+  M.forEach((row,i)=>{ t+=`<tr><th>P${i+1}</th>`;
+    row.forEach(v=>{ if(v===null){t+=`<td></td>`;return;}
+      t+=`<td style="background:rgba(55,214,122,${(Math.abs(v)/mx*0.45).toFixed(3)})">${Math.round(v*bbval).toLocaleString()}</td>`; });
+    t+=`</tr>`; });
+  $('#matrix').innerHTML=t;
+}
+
+/* ================= 頁 2:Bounty 模型 ================= */
+// V(s)=Σ_{k>s} p^(k−s)·pay_k·(n−1);本手 at stake = V(s)/p
+const bountyV=(s,p,tiers,n)=>Object.entries(tiers).reduce((a,[k,pay])=>+k>s?a+Math.pow(p,+k-s)*pay*(n-1):a,0);
+
+function computeB(){
+  const n=+$('#bn').value;
+  const sel=$('#bholder'), prev=sel.value;
+  sel.innerHTML='<option value="-1">（無）</option>'+Array.from({length:n},(_,i)=>`<option value="${i}">P${i+1}</option>`).join('');
+  sel.value=(+prev>=0&&+prev<n)?prev:'-1';
+  const hIdx=+sel.value, streak=Math.max(0,+$('#bstreak').value||0);
+  const p=Math.min(.99,Math.max(.01,(+$('#bp').value||100/n)/100));
+  const tiers={};
+  $('#btiers').value.split(',').forEach(t=>{const[k,v]=t.split(':').map(x=>+x.trim());if(k>0&&v>0)tiers[k]=v;});
+  const maxTier=Math.max(0,...Object.keys(tiers).map(Number));
+
+  if(hIdx<0){ $('#bbanner').textContent='請選擇連勝者'; }
+  else{
+    const V=bountyV(streak,p,tiers,n), stake=V/p;
+    $('#bbanner').innerHTML=`P${hIdx+1} 連勝 ${streak} 手（下一手勝率 ${(p*100).toFixed(1)}%）
+      → 賞金 Equity <b>${V.toFixed(3)}</b> BB
+      ｜本手 at stake <b>${stake.toFixed(3)}</b> BB（其他每人 ${(stake/(n-1)).toFixed(3)} BB）`;
+  }
+
+  let s=`<tr><th>玩家</th><th>身分</th><th>Bounty Equity [BB]</th></tr>`;
+  const V0=hIdx<0?0:bountyV(streak,p,tiers,n);
+  for(let i=0;i<n;i++){
+    const e=hIdx<0?0 : i===hIdx?V0 : -V0/(n-1);
+    s+=`<tr><td>P${i+1}</td><td>${i===hIdx?'🔥 連勝者':'—'}</td>
+        <td class="${e>=0?'pos':'neg'}">${e.toFixed(4)}</td></tr>`;
+  }
+  $('#bsummary').innerHTML=s;
+
+  let t=`<tr><th>連勝 s</th><th>達階賞金(每人)</th><th>V(s) [BB]</th><th>本手 at stake [BB]</th></tr>`;
+  for(let sk=0;sk<=maxTier;sk++){
+    const V=bountyV(sk,p,tiers,n);
+    t+=`<tr ${sk===streak&&hIdx>=0?'style="outline:2px solid var(--gold)"':''}>
+        <td>${sk}</td><td>${tiers[sk]?tiers[sk]+' BB':'—'}</td>
+        <td>${V.toFixed(3)}</td><td>${(V/p).toFixed(3)}</td></tr>`;
+  }
+  $('#bladder').innerHTML=t;
+}
+
+/* ---------- wire ---------- */
+/* ---------- Format Profile(存喺 localStorage) ---------- */
+const PF=['np','totalOff','unit','bbval','next','mult'];           // profile 記低嘅欄位
+const PKEY='squidProfiles';
+const seed={                                                        // 內置示範
+  '9人 N+3 標準':{np:9,totalOff:3, unit:1,bbval:50,next:1,mult:'1,1,2,2,3,3,4'},
+  '6人 N+2':     {np:6,totalOff:2, unit:2,bbval:50,next:1,mult:'1,1,2,2,3'},
+  'Stand-up 8人':{np:8,totalOff:-1,unit:6,bbval:50,next:1,mult:'standup'},
+};
+function loadProfs(){
+  try{ const r=localStorage.getItem(PKEY); return r?JSON.parse(r):{...seed}; }
+  catch{ return {...seed}; }                                        // 私隱模式/檔案限制:用內置
+}
+function saveProfs(p){ try{ localStorage.setItem(PKEY,JSON.stringify(p)); }catch{} }
+let profs=loadProfs();
+
+function fillProfSel(pick){
+  const names=Object.keys(profs);
+  $('#profSel').innerHTML='<option value="">（未選）</option>'+names.map(nm=>`<option>${nm}</option>`).join('');
+  if(pick&&profs[pick]) $('#profSel').value=pick;
+}
+function applyProf(nm){
+  const p=profs[nm]; if(!p) return;
+  PF.forEach(k=>{ if(p[k]!==undefined) $('#'+k).value=p[k]; });
+  // ponytail: 舊版 profile 存嘅係絕對 total,換算做 offset 先set
+  if(p.totalOff===undefined && p.total!==undefined && p.np!==undefined)
+    $('#totalOff').value=Math.max(-2,Math.min(4,p.total-p.np));
+  $('#profName').value=nm; computeS();
+}
+function note(msg){ $('#profNote').textContent=msg; }
+
+fillProfSel();
+$('#profSel').onchange=e=>{ if(e.target.value) applyProf(e.target.value); };
+$('#profSave').onclick=()=>{
+  const nm=$('#profName').value.trim();
+  if(!nm){ note('請先輸入 profile 名稱。'); return; }
+  profs[nm]=Object.fromEntries(PF.map(k=>[k,$('#'+k).value]));
+  saveProfs(profs); fillProfSel(nm); note(`已儲存「${nm}」。`);
+};
+$('#profRename').onclick=()=>{
+  const old=$('#profSel').value, nm=$('#profName').value.trim();
+  if(!old){ note('請先喺左邊揀一個 profile 先改名。'); return; }
+  if(!nm){ note('請輸入新名稱。'); return; }
+  if(nm===old){ note('新名稱同原本一樣。'); return; }
+  profs[nm]=profs[old]; delete profs[old];
+  saveProfs(profs); fillProfSel(nm); note(`「${old}」已改名做「${nm}」。`);
+};
+$('#profDel').onclick=()=>{
+  const nm=$('#profSel').value;
+  if(!nm){ note('請先揀一個 profile。'); return; }
+  delete profs[nm]; saveProfs(profs); fillProfSel(); $('#profName').value='';
+  note(`已刪除「${nm}」。`);
+};
+
+['np','unit','bbval','next'].forEach(id=>$('#'+id).oninput=computeS);
+['totalOff','mult'].forEach(id=>$('#'+id).onchange=computeS);
+$('#resetHolds').onclick=()=>{ holds=holds.map(()=>0); computeS(); };
+['bn','bstreak','bp','btiers'].forEach(id=>$('#'+id).oninput=computeB);
+$('#bholder').onchange=computeB;
+computeS(); computeB();
+
+/* ---------- 自我檢查(引擎回歸,對照 SquidSolver 截圖;開 console 看) ---------- */
+(()=>{
+  const n=9,val=1,ml=[1,1,2,2,4,4,8],base=[5,2,2,1,0,0,0,0,0];
+  const near=(a,b)=>Math.abs(a-b)<0.01;
+  const dp=jointDP([1,1],n);
+  console.assert(near(equity_i(base,dp,0,n,ml,val),84.6914),'PenaltyEquity P1 應=84.6914');
+  const dpR=jointDP([1],n), ci=base.slice(); ci[0]++; const cj=base.slice(); cj[1]++;
+  console.assert(near(equity_i(ci,dpR,0,n,ml,val)-equity_i(cj,dpR,0,n,ml,val),33.3333),'ante(P1,P2) 應=33.3333');
+  console.assert(near(sum(base.map((_,i)=>equity_i(base,dp,i,n,ml,val))),0),'零和');
+  console.assert(near(bountyV(2,1/8,{3:10,4:20},8),10.9375),'Bounty V(2) 應=10.9375');
+  // Stand-up:8 人 3 坐下 rem=4 → 持者 +6,站者 −3.6;零和
+  const su=suEquity([1,1,1,0,0,0,0,0],4,8,6);
+  console.assert(near(su[0],6)&&near(su[3],-3.6)&&near(sum(su),0),'Stand-up 期望錯誤');
+})();
+</script>
