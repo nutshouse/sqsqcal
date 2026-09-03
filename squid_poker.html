@@ -74,6 +74,7 @@
     <div><label>本手魷魚數</label><input type="number" id="next" value="1" min="1"></div>
     <div><label>倍率 multiplier</label><select id="mult">
       <option value="1,1,2,2,3,3,4">3(×2)·5(×3)·7(×4)</option>
+      <option value="1,1,2,2,3,3,5">3(×2)·5(×3)·7(×5)</option>
       <option value="1,1,2,2,3">3(×2)·5(×3)</option>
       <option value="1,1,2">3隻以上×2（不再跳階）</option>
       <option value="1">冇倍（不限條數）</option>
@@ -232,13 +233,13 @@ function computeS(){
   const sidePot=avg.map(a=>bbval*(a+val));
 
   const atCap = !standup && distributed>=total;                // 已派完,全體 + 制無效
-  let s=`<tr><th>玩家</th><th>Squids</th><th>Average Ante [BB]</th><th>Penalty Equity [BB]</th><th>隱含 Side Pot（籌碼）</th></tr>`;
+  let s=`<tr><th>玩家</th><th>Squids</th><th>隱含 Side Pot（籌碼）</th><th>Average Ante [BB]</th><th>Penalty Equity [BB]</th></tr>`;
   holds.forEach((k,i)=>{ const plusOff = atCap || k>=cap;
     s+=`<tr><td>P${i+1}</td>
     <td class="step"><button data-d="-1" data-i="${i}">−</button><span>${k}</span><button data-d="1" data-i="${i}" ${plusOff?'disabled':''}>+</button></td>
+    <td>${Math.round(sidePot[i]).toLocaleString()}</td>
     <td>${avg[i].toFixed(4)}</td>
-    <td class="${eq[i]>=0?'pos':'neg'}">${eq[i].toFixed(4)}</td>
-    <td>${Math.round(sidePot[i]).toLocaleString()}</td></tr>`; });
+    <td class="${eq[i]>=0?'pos':'neg'}">${eq[i].toFixed(4)}</td></tr>`; });
   $('#summary').innerHTML=s;
   $('#summary').querySelectorAll('button').forEach(b=>b.onclick=()=>{
     const i=+b.dataset.i, d=+b.dataset.d;
